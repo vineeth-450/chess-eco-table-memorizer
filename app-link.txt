@@ -1,0 +1,3 @@
+https://mighty-tor-41565.herokuapp.com/
+
+https://mighty-tor-41565.herokuapp.com/{Code}
