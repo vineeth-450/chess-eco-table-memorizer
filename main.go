@@ -1,20 +1,31 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/ReneKroon/ttlcache/v2"
 	"github.com/gorilla/mux"
 )
 
+const (
+	ChessECOHelpURL   = "https://www.chessgames.com/chessecohelp.html"
+	CacheTTLInSeconds = 180
+	CacheKey          = "MoveData"
+)
+
 type moveInfo struct {
-	moveName string
-	moves    string
+	MoveName string `json:"moveName"`
+	Moves    string `json:"moves"`
 }
+
+var cache ttlcache.SimpleCache = ttlcache.NewCache()
 
 func main() {
 
@@ -27,7 +38,7 @@ func main() {
 }
 
 func listAllData(w http.ResponseWriter, r *http.Request) {
-	response, err := http.Get("https://www.chessgames.com/chessecohelp.html")
+	response, err := http.Get(ChessECOHelpURL)
 	if err != nil {
 		http.Error(w, "ISE", 502)
 	}
@@ -47,24 +58,49 @@ func getMoveForCode(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	code := vars["code"]
 
-	response, err := http.Get("https://www.chessgames.com/chessecohelp.html")
-	if err != nil {
-		http.Error(w, "ISE", 502)
-	}
-
-	defer response.Body.Close()
-
-	doc, err := goquery.NewDocumentFromReader(response.Body)
-	if err != nil {
-		http.Error(w, "ISE", 502)
-	}
-
 	moveMap := make(map[string]moveInfo)
-	doc.Find("tr").Each(func(index int, element *goquery.Selection) {
-		moveCode := element.Find("td").First().Text()
-		moveInfoStrs := strings.Split(element.Find("td").Last().Text(), "\n")
-		moveMap[moveCode] = moveInfo{moveInfoStrs[0], moveInfoStrs[1]}
-	})
 
-	w.Write([]byte(fmt.Sprintf("<b>%s</b><br>%s", moveMap[code].moveName, moveMap[code].moves)))
+	val, err := cache.Get(CacheKey)
+	if err != ttlcache.ErrNotFound {
+		log.Println("Using Cached Data with key", CacheKey)
+		err := json.Unmarshal(val.([]byte), &moveMap)
+		if err != nil {
+			http.Error(w, "ISE", 502)
+			return
+		}
+	} else {
+		log.Println("Data not found in cache, getting data from url")
+		response, err := http.Get(ChessECOHelpURL)
+		if err != nil {
+			http.Error(w, "ISE", 502)
+			return
+		}
+
+		defer response.Body.Close()
+
+		doc, err := goquery.NewDocumentFromReader(response.Body)
+		if err != nil {
+			http.Error(w, "ISE", 502)
+			return
+		}
+
+		cache.SetTTL(time.Duration(CacheTTLInSeconds * time.Second))
+		doc.Find("tr").Each(func(index int, element *goquery.Selection) {
+			moveCode := element.Find("td").First().Text()
+			moveInfoStrs := strings.Split(element.Find("td").Last().Text(), "\n")
+			moveMap[moveCode] = moveInfo{moveInfoStrs[0], moveInfoStrs[1]}
+		})
+
+		jsonData, _ := json.Marshal(moveMap)
+		log.Println("Caching Data with Key", CacheKey)
+		cache.Set(CacheKey, jsonData)
+	}
+
+	move, ok := moveMap[code]
+	if !ok {
+		http.Error(w, fmt.Sprintf("Move Code '%s' Not Found. Please Enter a valid code", code), 404)
+		return
+	}
+
+	w.Write([]byte(fmt.Sprintf("<b>%s</b><br>%s", move.MoveName, move.Moves)))
 }
