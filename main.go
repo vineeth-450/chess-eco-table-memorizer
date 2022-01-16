@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -30,11 +31,12 @@ var cache ttlcache.SimpleCache = ttlcache.NewCache()
 func main() {
 
 	fmt.Println("Chess ECO Table Memorizer")
+	port := os.Getenv("PORT")
 	r := mux.NewRouter()
 	r.HandleFunc("/", listAllData).Methods("GET")
 	r.HandleFunc("/{code}", getMoveForCode).Methods("GET")
 
-	log.Fatal(http.ListenAndServe(":8080", r))
+	log.Fatal(http.ListenAndServe(":"+port, r))
 }
 
 func listAllData(w http.ResponseWriter, r *http.Request) {
