@@ -1,1 +1,1 @@
-web: bin/chess-eco-table-memorizer
+web: bin/chess-eco-table-memorizer -p 8080
